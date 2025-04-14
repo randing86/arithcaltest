@@ -1,6 +1,6 @@
 /*
- * Arithmetic Game JavaScript implementation (Web Version with Configurable Phases and Review Mechanism)
- * This file provides a web-based interface for the arithmetic game where the user can configure up to 3 phases.
+ * Arithmetic Game JavaScript implementation (Web Version with Configurable Phases)
+ * 
  * Each phase's configuration includes:
  * 1. First number maximum (or a specific number if chosen)
  * 2. Operation (+, -, *, /)
@@ -8,18 +8,11 @@
  * 4. Limit type: either a fixed number of questions or a time limit (in seconds) for the phase
  * 5. Option to allow negative results
  * 
- * In addition, when a problem is answered incorrectly, the problem is tracked and repeated later in the problem set.
- * If a problem is answered incorrectly multiple times, it will be repeated until it has been answered correctly as many times as it was answered incorrectly.
- * Persistently, unresolved problems are stored and will reappear in future instances until mastered.
- * 
- * NEW ENHANCEMENTS:
- * - The arithmetic question is formatted with the operation placed between the first and second numbers.
- * - A log prevents any question from being repeated more than 3 times during the session.
- * - The same question will not be displayed consecutively.
- * - The question display format is updated to show:
- *       Phase 1
- *       1. What is 5 - 5?
- * - The end game message now displays the total questions, total time, and average time per question.
+ * New enhancements:
+ * - The arithmetic question is formatted with the operation between the first and second numbers.
+ * - A log prevents any question from being displayed more than 3 times during the session, and prevents the same question from showing back-to-back.
+ * - When a question is answered incorrectly, the same question is presented until it is answered correctly.
+ * - The end game summary shows: the number of questions completed, total time, average time per question, number of right answers, number of wrong attempts, and overall percentage correct.
  */
 
 // Utility function to generate a random integer between min and max (inclusive)
@@ -31,22 +24,18 @@ function randomInt(min, max) {
 let gamePhases = [];      // Array of phase objects { config, total }
 let currentPhaseIndex = 0;
 let currentQuestionIndex = 0;
-let currentQuestion = null; // currentQuestion object will include { question, answer, fromReview (bool), reviewData (object) }
+let currentQuestion = null; // currentQuestion object will include { question, answer }
 let startTime = null;     // Overall game start time
 let phaseStartTime = null; // Start time for current phase
 let timerInterval = null;
 
 // Global tracking for question frequency and ordering
-let totalQuestionsAnswered = 0;             // Total number of questions answered in this session
-let questionLog = {};                       // Log mapping question text to the number of times it has been shown
-let lastQuestion = "";                      // Last question text displayed
+let questionLog = {};      // Log mapping question text to the number of times it has been shown
+let lastQuestion = "";     // Last question text displayed
 
-// Review queue for questions answered incorrectly
-// Each item: { question: <string>, answer: <number>, required: <number>, correctCount: <number> }
-let reviewQueue = [];
-
-// LocalStorage key for persistent review data
-const REVIEW_STORAGE_KEY = 'reviewQueue';
+// Counters for performance tracking
+let correctCount = 0;      // Number of questions answered correctly (completed)
+let wrongCount = 0;        // Total wrong attempts
 
 // UI Elements
 const timerElem = document.getElementById('timer');
@@ -56,16 +45,6 @@ const submitButton = document.getElementById('submit');
 const feedbackElem = document.getElementById('feedback');
 const endgamePanel = document.getElementById('endgame-panel');
 const endgameMessage = document.getElementById('endgame-message');
-
-// Persistent reviewQueue functions
-function loadPersistentReviewQueue() {
-    const data = localStorage.getItem(REVIEW_STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-}
-
-function savePersistentReviewQueue() {
-    localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(reviewQueue));
-}
 
 // Update the timer display (running timer displayed at top)
 function updateTimer() {
@@ -157,38 +136,23 @@ function loadNextQuestion() {
         }
     }
 
-    let candidate = null;
-    // Every 3 questions, if reviewQueue is non-empty, serve a review question
-    if (reviewQueue.length > 0 && (currentQuestionIndex % 3 === 0)) {
-        candidate = reviewQueue.shift();
-        candidate.fromReview = true;
-        // If this candidate has been displayed too many times or is the same as the last question, skip it
-        if ((questionLog[candidate.question] || 0) >= 3 || candidate.question === lastQuestion) {
-            loadNextQuestion();
-            return;
-        }
-    } else {
+    // Always generate a new question for the current phase
+    let candidate = generateQuestion(config);
+    let attempts = 0;
+    // Regenerate if candidate has been shown too many times or is the same as the last question
+    while (((questionLog[candidate.question] || 0) >= 3 || candidate.question === lastQuestion) && attempts < 10) {
         candidate = generateQuestion(config);
-        candidate.fromReview = false;
-        let attempts = 0;
-        // Regenerate if candidate has been shown too many times or is same as last question
-        while (((questionLog[candidate.question] || 0) >= 3 || candidate.question === lastQuestion) && attempts < 10) {
-            candidate = generateQuestion(config);
-            candidate.fromReview = false;
-            attempts++;
-        }
+        attempts++;
     }
 
     // Update logs
     questionLog[candidate.question] = (questionLog[candidate.question] || 0) + 1;
     lastQuestion = candidate.question;
-    totalQuestionsAnswered++;
+    currentQuestionIndex++;
 
     currentQuestion = candidate;
-    currentQuestionIndex++;
-    // Update question display in the specified format:
-    // Phase X
-    // Y. <strong>Question</strong>
+    // Display question in the specified format: 
+    // Phase X<br>Y. <strong>Question</strong>
     questionElem.innerHTML = `Phase ${currentPhaseIndex + 1}<br>${currentQuestionIndex}. <strong>${currentQuestion.question}</strong>`;
     answerInput.value = '';
     feedbackElem.textContent = '';
@@ -205,60 +169,16 @@ function handleSubmit() {
     if (userAnswer === currentQuestion.answer) {
         feedbackElem.style.color = 'green';
         feedbackElem.textContent = `Correct! You answered: ${userAnswer}.`;
-        // If this was a review question, update its record
-        if (currentQuestion.fromReview) {
-            if (!currentQuestion.reviewData) {
-                // Initialize review data
-                currentQuestion.reviewData = { required: 1, correctCount: 0 };
-            }
-            currentQuestion.reviewData.correctCount++;
-            if (currentQuestion.reviewData.correctCount < currentQuestion.reviewData.required) {
-                // Not mastered yet, requeue the review question
-                reviewQueue.push(currentQuestion);
-            }
-        }
+        correctCount++;
         setTimeout(() => {
-            savePersistentReviewQueue();
             loadNextQuestion();
         }, 1000);
     } else {
+        wrongCount++;
         feedbackElem.style.color = 'red';
-        feedbackElem.textContent = `Incorrect, you answered: ${userAnswer}. This problem will be reviewed later.`;
-        // Log this incorrect attempt in the review queue
-        let found = false;
-        // Check if this problem is already in reviewQueue (by question text)
-        for (let item of reviewQueue) {
-            if (item.question === currentQuestion.question) {
-                item.required++;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            // If current question is already a review question, update its data; else create new review record
-            if (currentQuestion.fromReview) {
-                if (!currentQuestion.reviewData) {
-                    currentQuestion.reviewData = { required: 1, correctCount: 0 };
-                } else {
-                    currentQuestion.reviewData.required++;
-                }
-                reviewQueue.push(currentQuestion);
-            } else {
-                // Create a new review record from the current question
-                let reviewItem = {
-                    question: currentQuestion.question,
-                    answer: currentQuestion.answer,
-                    required: 1,
-                    correctCount: 0,
-                    fromReview: true
-                };
-                reviewQueue.push(reviewItem);
-            }
-        }
-        setTimeout(() => {
-            savePersistentReviewQueue();
-            loadNextQuestion();
-        }, 1000);
+        feedbackElem.textContent = `Incorrect, you answered: ${userAnswer}. Please try again.`;
+        // Do not move to the next question; allow reattempt on the same question.
+        answerInput.value = '';
     }
 }
 
@@ -268,10 +188,14 @@ function endGame() {
     const totalTime = Math.floor((Date.now() - startTime) / 1000);
     answerInput.style.display = 'none';
     submitButton.style.display = 'none';
-    const avgTime = totalQuestionsAnswered > 0 ? (totalTime / totalQuestionsAnswered).toFixed(2) : 0;
-    endgameMessage.textContent = `You completed ${totalQuestionsAnswered} questions in ${totalTime} seconds (average ${avgTime} seconds per question).`;
+    // Calculate average time per correctly answered question
+    const avgTime = correctCount > 0 ? (totalTime / correctCount).toFixed(2) : 0;
+    // Calculate overall percentage correct: percentage of correct answers out of total attempts
+    const totalAttempts = correctCount + wrongCount;
+    const percentCorrect = totalAttempts > 0 ? ((correctCount / totalAttempts) * 100).toFixed(1) : 0;
+    endgameMessage.textContent = `You completed ${correctCount} questions in ${totalTime} seconds (average ${avgTime} seconds per question).
+Questions Right: ${correctCount}, Questions Wrong: ${wrongCount} (${percentCorrect}% correct)`;
     endgamePanel.style.display = 'block';
-    savePersistentReviewQueue();
 }
 
 // Start the game using configuration from window.gameConfig
@@ -280,12 +204,12 @@ function startGame() {
         console.error('No game configuration provided.');
         return;
     }
-    // Reset global logs for a new game session
-    totalQuestionsAnswered = 0;
+    // Reset global logs and counters for a new game session
     questionLog = {};
     lastQuestion = "";
+    correctCount = 0;
+    wrongCount = 0;
 
-    reviewQueue = loadPersistentReviewQueue();
     gamePhases = window.gameConfig.map(config => {
         return { config: config, total: config.limit };
     });
