@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Arithmetic Game</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f0f0; }
+        #game-container { margin: 20px auto; width: 600px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        #config-panel { margin-bottom: 20px; }
+        .phase-config { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
+        .phase-config h3 { margin-top: 0; }
+        label { display: block; margin-top: 5px; }
+        input[type='number'] { width: 80px; }
+        .range-input { display: inline-block; vertical-align: middle; margin-right: 10px; }
+        #timer { font-size: 16px; margin-bottom: 10px; }
+        #question { font-size: 18px; margin-bottom: 10px; }
+        #feedback { margin-top: 10px; color: red; }
+        button { margin-top: 10px; }
+        .limit-type-container { margin-top: 5px; padding-left: 20px; }
+        #endgame-panel { margin-top: 20px; display: none; }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>Arithmetic Game!</h1>
+        <div id="config-panel">
+            <h2>Configure Game Phases</h2>
+            <label for="phase-count">Number of Phases:</label>
+            <select id="phase-count">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+            </select>
+            <div id="phases-container">
+                <!-- Phase configurations will be inserted here dynamically -->
+            </div>
+            <button id="save-config">Save Configuration and Start Game</button>
+        </div>
+        
+        <div id="game-panel" style="display:none;">
+            <!-- Running timer displayed at top -->
+            <div id="timer">Timer: 0 seconds</div>
+            <!-- Question text will be displayed here -->
+            <div id="question"></div>
+            <!-- Answer input and submit button; these will be hidden on end screen -->
+            <input type="text" id="answer" placeholder="Your answer" />
+            <br>
+            <button id="submit">Submit</button>
+            <div id="feedback"></div>
+            <!-- End game panel with Restart and Quit buttons; hidden until game end -->
+            <div id="endgame-panel">
+                <h2 id="endgame-message"></h2>
+                <button id="restart-button">Restart</button>
+                <button id="quit-button">Quit</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="arithmetic_game.js"></script>
+    <script>
+        // Configuration Panel Script
+        const phaseCountSelect = document.getElementById('phase-count');
+        const phasesContainer = document.getElementById('phases-container');
+        const saveConfigButton = document.getElementById('save-config');
+        const configPanel = document.getElementById('config-panel');
+        const gamePanel = document.getElementById('game-panel');
+
+        // Create a phase configuration block
+        function createPhaseConfig(phaseIndex, savedData) {
+            const container = document.createElement('div');
+            container.className = 'phase-config';
+            container.id = `phase-config-${phaseIndex}`;
+            container.innerHTML = `
+                <h3>Phase ${phaseIndex}</h3>
+                <label id="phase${phaseIndex}_first_label">First Number Range [0-100]:</label>
+                <input type="number" id="phase${phaseIndex}_first_num" value="${savedData && savedData.firstNum !== undefined ? savedData.firstNum : 100}" min="0" max="100" />
+                <input type="range" id="phase${phaseIndex}_first_range" value="${savedData && savedData.firstNum !== undefined ? savedData.firstNum : 100}" min="0" max="100" />
+                <label>
+                    <input type="checkbox" id="phase${phaseIndex}_first_specific_check" ${savedData && savedData.firstSpecific !== undefined ? 'checked' : ''} /> Use Specific First Number
+                </label>
+
+                <label for="phase${phaseIndex}_operation">Operation:</label>
+                <select id="phase${phaseIndex}_operation">
+                    <option value="+" ${(savedData && savedData.operation === '+') || !savedData ? 'selected' : ''}>+</option>
+                    <option value="-" ${savedData && savedData.operation === '-' ? 'selected' : ''}>-</option>
+                    <option value="*" ${savedData && savedData.operation === '*' ? 'selected' : ''}>*</option>
+                    <option value="/" ${savedData && savedData.operation === '/' ? 'selected' : ''}>/</option>
+                </select>
+
+                <label id="phase${phaseIndex}_second_label">Second Number Range [0-100]:</label>
+                <input type="number" id="phase${phaseIndex}_second_num" value="${savedData && savedData.secondNum !== undefined ? savedData.secondNum : 100}" min="0" max="100" />
+                <input type="range" id="phase${phaseIndex}_second_range" value="${savedData && savedData.secondNum !== undefined ? savedData.secondNum : 100}" min="0" max="100" />
+                <label>
+                    <input type="checkbox" id="phase${phaseIndex}_second_specific_check" ${savedData && savedData.secondSpecific !== undefined ? 'checked' : ''} /> Use Specific Second Number
+                </label>
+                
+                <div class="limit-type-container">
+                    <label>Limit Type:</label>
+                    <label><input type="radio" name="phase${phaseIndex}_limit_type" value="questions" ${(savedData && savedData.limitType === 'questions') || !savedData ? 'checked' : ''} /> Questions</label>
+                    <label><input type="radio" name="phase${phaseIndex}_limit_type" value="time" ${savedData && savedData.limitType === 'time' ? 'checked' : ''} /> Time (seconds)</label>
+                </div>
+                <label>Limit Value:</label>
+                <input type="number" id="phase${phaseIndex}_limit" value="${savedData && savedData.limit !== undefined ? savedData.limit : 10}" min="1" />
+                
+                <label>
+                    <input type="checkbox" id="phase${phaseIndex}_allow_negative" ${savedData && savedData.allowNegative ? 'checked' : ''} /> Allow Negative Results
+                </label>
+            `;
+
+            // Sync number input and range slider for first number
+            const firstNumInput = container.querySelector(`#phase${phaseIndex}_first_num`);
+            const firstRangeInput = container.querySelector(`#phase${phaseIndex}_first_range`);
+            const firstLabel = container.querySelector(`#phase${phaseIndex}_first_label`);
+            firstNumInput.addEventListener('input', () => {
+                firstRangeInput.value = firstNumInput.value;
+            });
+            firstRangeInput.addEventListener('input', () => {
+                firstNumInput.value = firstRangeInput.value;
+            });
+            
+            // Toggle first number label
+            const firstSpecificCheck = container.querySelector(`#phase${phaseIndex}_first_specific_check`);
+            firstSpecificCheck.addEventListener('change', () => {
+                if (firstSpecificCheck.checked) {
+                    firstLabel.textContent = 'First Number (Specific) [0-100]:';
+                } else {
+                    firstLabel.textContent = 'First Number Range [0-100]:';
+                }
+            });
+            if (firstSpecificCheck.checked) {
+                firstLabel.textContent = 'First Number (Specific) [0-100]:';
+            }
+            
+            // Sync number input and range slider for second number
+            const secondNumInput = container.querySelector(`#phase${phaseIndex}_second_num`);
+            const secondRangeInput = container.querySelector(`#phase${phaseIndex}_second_range`);
+            const secondLabel = container.querySelector(`#phase${phaseIndex}_second_label`);
+            secondNumInput.addEventListener('input', () => {
+                secondRangeInput.value = secondNumInput.value;
+            });
+            secondRangeInput.addEventListener('input', () => {
+                secondNumInput.value = secondRangeInput.value;
+            });
+            
+            // Toggle second number label
+            const secondSpecificCheck = container.querySelector(`#phase${phaseIndex}_second_specific_check`);
+            secondSpecificCheck.addEventListener('change', () => {
+                if (secondSpecificCheck.checked) {
+                    secondLabel.textContent = 'Second Number (Specific) [0-100]:';
+                } else {
+                    secondLabel.textContent = 'Second Number Range [0-100]:';
+                }
+            });
+            if (secondSpecificCheck.checked) {
+                secondLabel.textContent = 'Second Number (Specific) [0-100]:';
+            }
+
+            return container;
+        }
+
+        // Load saved configuration from localStorage if available
+        function loadSavedConfig() {
+            const saved = localStorage.getItem('arithmeticGameConfig');
+            if (saved) {
+                return JSON.parse(saved);
+            }
+            return null;
+        }
+
+        function updatePhaseConfigs() {
+            const count = parseInt(phaseCountSelect.value, 10);
+            const savedConfig = loadSavedConfig();
+            phasesContainer.innerHTML = '';
+            for (let i = 1; i <= count; i++) {
+                let phaseData = null;
+                if (savedConfig && savedConfig[i - 1]) {
+                    phaseData = savedConfig[i - 1];
+                }
+                const phaseConfig = createPhaseConfig(i, phaseData);
+                phasesContainer.appendChild(phaseConfig);
+            }
+        }
+
+        // Save configuration to localStorage
+        function saveConfigToLocalStorage(phasesConfig) {
+            localStorage.setItem('arithmeticGameConfig', JSON.stringify(phasesConfig));
+        }
+
+        updatePhaseConfigs();
+        phaseCountSelect.addEventListener('change', updatePhaseConfigs);
+
+        saveConfigButton.addEventListener('click', () => {
+            const count = parseInt(phaseCountSelect.value, 10);
+            const phasesConfig = [];
+            for (let i = 1; i <= count; i++) {
+                const limitTypeElements = document.getElementsByName(`phase${i}_limit_type`);
+                let limitType = 'questions';
+                for (let el of limitTypeElements) {
+                    if (el.checked) { limitType = el.value; break; }
+                }
+                const config = {
+                    firstNum: parseInt(document.getElementById(`phase${i}_first_num`).value, 10),
+                    operation: document.getElementById(`phase${i}_operation`).value,
+                    secondNum: parseInt(document.getElementById(`phase${i}_second_num`).value, 10),
+                    limit: parseInt(document.getElementById(`phase${i}_limit`).value, 10),
+                    limitType: limitType,
+                    allowNegative: document.getElementById(`phase${i}_allow_negative`).checked
+                };
+                // If the specific checkbox is checked, store the current number as specific
+                if (document.getElementById(`phase${i}_first_specific_check`).checked) {
+                    config.firstSpecific = parseInt(document.getElementById(`phase${i}_first_num`).value, 10);
+                }
+                if (document.getElementById(`phase${i}_second_specific_check`).checked) {
+                    config.secondSpecific = parseInt(document.getElementById(`phase${i}_second_num`).value, 10);
+                }
+                phasesConfig.push(config);
+            }
+            saveConfigToLocalStorage(phasesConfig);
+            // Save configuration and auto-start game immediately
+            window.gameConfig = phasesConfig;
+            configPanel.style.display = 'none';
+            gamePanel.style.display = 'block';
+            if (typeof startGame === 'function') {
+                startGame();
+            } else {
+                console.error('startGame function not defined');
+            }
+        });
+
+        // Endgame button actions: restart or quit
+        document.getElementById('restart-button').addEventListener('click', () => {
+            location.reload();
+        });
+        document.getElementById('quit-button').addEventListener('click', () => {
+            window.location.href = 'https://www.linkedin.com/in/randing';
+        });
+    </script>
+</body>
+</html>
